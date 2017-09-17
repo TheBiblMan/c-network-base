@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <winsock2.h>
 #include "packetconsts.h"
-#include "packetqueue.h"
+//#include "packetqueue.h"
 #include "packethandler.h"
 
 void my_exit_func() {
@@ -15,7 +15,7 @@ void my_exit_func() {
 }
 
 int main(int argc, char *argv[]) {
-	struct server_config config;
+	/*struct server_config config;
 	WSAStartup(MAKEWORD(2, 2), &config.wsadata);
 
 	config.exit_callback = my_exit_func;
@@ -29,7 +29,7 @@ int main(int argc, char *argv[]) {
 	if(config.is_error) {
 		printf("exited with error: %d\n", WSAGetLastError());
 		printf(" msg: %s\n", config.error_msg);
-	}
+	}*/
 
 
 	return 0;

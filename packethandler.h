@@ -9,7 +9,7 @@
 #define PACKETHANDLER_H_
 
 #include <winsock2.h>
-#include "packetqueue.h"
+//#include "packetqueue.h"
 
 #define DATA_BUF_LEN 1024 * 8
 
@@ -19,7 +19,7 @@ struct connection {
 	char __write_buf[DATA_BUF_LEN], __read_buf[DATA_BUF_LEN];
 	WSABUF write_buf, read_buf;
 
-	struct packet_queue send_queue, recv_queue;
+//	struct packet_queue send_queue, recv_queue;
 };
 
 struct packet_factory {
