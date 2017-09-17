@@ -30,6 +30,14 @@ void dissolve_connection(struct connection **connptr) {
 }
 
 struct connection *create_connection(struct connection *connections[], SOCKET *accept_socket) {
+	/* we are storing pointers to connection
+	 * structs in our array as these structs
+	 * are very large in memory (few KB). most
+	 * of this memory is occupied by the underlying
+	 * read and write buffers. we may change
+	 * them to be pointers to the buffers in
+	 * the future, so that they can be dynamically
+	 * resized as well. */
 	struct connection *conn = GlobalAlloc(GPTR, sizeof(struct connection));
 
 	if(conn != NULL) {
@@ -43,6 +51,11 @@ struct connection *create_connection(struct connection *connections[], SOCKET *a
 		conn->write_buf.buf = conn->__write_buf;
 		conn->write_buf.len = DATA_BUF_LEN;
 
+		/* the connections array is maintained such
+		 * that when a connection is closed, that
+		 * space in the array is zeroed. when a new
+		 * connection is created, that memory is
+		 * set to a pointer to the connection struct. */
 		for (int i = 0; i < MAX_CLIENTS; i++) {
 			struct connection *c = connections[i];
 			/* zeroed memory, no connection in this position */
@@ -59,11 +72,13 @@ struct connection *create_connection(struct connection *connections[], SOCKET *a
 
 void *handler_start(void *arg) {
 	struct server_config *config = arg;
+	/* initialise the server state */
 	config->is_live = 1;
 	config->is_error = 0;
 
 	SOCKET listen_socket, accept_socket;
 
+	/* allocate our client connections (pointers) */
 	struct connection *connections[MAX_CLIENTS];
 	memset(connections, 0, sizeof(connections));
 
@@ -73,6 +88,7 @@ void *handler_start(void *arg) {
 	DWORD io_bytes = 0;
 	DWORD flags = 0;
 
+	/* server socket/winsock initialisation */
 	if((listen_socket = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED)) == INVALID_SOCKET) {
 		config->error_msg = "WSASocket failed";
 		goto error;
@@ -88,17 +104,25 @@ void *handler_start(void *arg) {
 		goto error;
 	}
 
+	/* put the socket into non blocking mode so
+	 * that we can use select(). */
 	if(ioctlsocket(listen_socket, FIONBIO, &non_blocking) == SOCKET_ERROR) {
 		config->error_msg = "ioctlsocket/non blocking mode on listen socket failed";
 		goto error;
 	}
 
+	/* main event loop */
 	while(TRUE) {
+		/* clear our sets before each select() call */
 		FD_ZERO(&read_set);
 		FD_ZERO(&write_set);
 
+		/* set the bit for our server listen socket. notifications
+		 * on this socket indicate that a client is trying to
+		 * connect (i.e. we need to accept() it). */
 		FD_SET(listen_socket, &read_set);
 
+		/* for all active connections, set the read bit unconditionally. */
 		for(int i=0; i < MAX_CLIENTS; i++) {
 			struct connection *conn = connections[i];
 
@@ -106,16 +130,26 @@ void *handler_start(void *arg) {
 				SOCKET client_socket = conn->socket;
 				FD_SET(client_socket, &read_set);
 
+				// TODO: set for writing when packets are pending.
 			}
 		}
 
+		/* blocking call, returns when one of the indicated
+		 * file descriptors in either the reader or write set
+		 * become available. timeout is set to NULL, i.e. no
+		 * timeout. */
 		num_descs_ready = select(0, &read_set, &write_set, NULL, NULL);
 
+		/* error checking (fatal) */
 		if(num_descs_ready == SOCKET_ERROR) {
+			// TODO: maybe we need to disconnect all clients?
+			//       would it work? the failure could be due
+			//       to an error on the write streams.
 			config->error_msg = "select failed";
 			goto error;
 		}
 
+		/* set on the listen socket, i.e. accept */
 		if(FD_ISSET(listen_socket, &read_set)) {
 			num_descs_ready--;
 
@@ -127,6 +161,8 @@ void *handler_start(void *arg) {
 					goto error;
 				}
 			} else {
+				/* set the connected client socket to be
+				 * non blocking as well. */
 				non_blocking = 1;
 
 				if(ioctlsocket(accept_socket, FIONBIO, &non_blocking) == SOCKET_ERROR) {
@@ -134,6 +170,9 @@ void *handler_start(void *arg) {
 					goto error;
 				}
 
+				/* try to create the connection struct. note that
+				 * create_connection also adds the created connection
+				 * to the connections array. */
 				struct connection *conn;
 				if(!(conn = create_connection(connections, &accept_socket))) {
 					printf("could not create connection to %d\n", accept_socket);
@@ -143,11 +182,16 @@ void *handler_start(void *arg) {
 			}
 		}
 
-		struct connection *conn;
+		/* go through all the connections, but stop early
+		 * if we have exhausted our indicated descriptors. */
 		for(int i=0; num_descs_ready > 0; i++) {
-			conn = connections[i];
+			struct connection *conn = connections[i];
+
 			if(is_live_connection(conn)) {
 
+				/* note for the following: WSAEWOULDBLOCK is non fatal. */
+
+				/* read on the client socket. */
 				if(FD_ISSET(conn->socket, &read_set)) {
 					printf("[R] it's a read on %d.\n", conn->socket);
 					num_descs_ready--;
@@ -161,6 +205,7 @@ void *handler_start(void *arg) {
 						}
 						continue;
 					} else {
+						// TODO: parse packet
 						printf("  of %ld bytes.\n", io_bytes);
 						if(io_bytes == 0) {
 							// closed
@@ -171,6 +216,7 @@ void *handler_start(void *arg) {
 					}
 				}
 
+				/* write on the client socket. */
 				if(FD_ISSET(conn->socket, &write_set)) {
 					printf("[W] it's a write on %d.\n", conn->socket);
 					num_descs_ready--;
@@ -182,12 +228,17 @@ void *handler_start(void *arg) {
 						}
 						continue;
 					} else {
+						// TODO: write packet
 						printf("  of %ld bytes.\n", io_bytes);
 					}
 				}
 			}
 		}
 	}
+
+	/* the loop should not exit to here */
+	printf("fatal: loop leaked (wth)\n");
+	exit(2);
 
 	error: {
 		config->is_live = 0;
