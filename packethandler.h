@@ -11,11 +11,27 @@
 #include <winsock2.h>
 #include "packetqueue.h"
 
+#define DATA_BUF_LEN 1024 * 8
+
+struct connection {
+	int idx;
+	SOCKET socket;
+	char __write_buf[DATA_BUF_LEN], __read_buf[DATA_BUF_LEN];
+	WSABUF write_buf, read_buf;
+
+	struct packet_queue send_queue, recv_queue;
+};
+
+struct packet_factory {
+	void (*parse_packet)(struct connection *conn);
+};
+
 #define MAX_CLIENTS FD_SETSIZE-1
 
 struct server_config {
 	WSADATA wsadata;
 	SOCKADDR_IN addr;
+	struct packet_factory packet_factory;
 	void (*exit_callback)(void);
 
 	/* server controlled variables,
@@ -32,18 +48,6 @@ struct server_config {
 	int is_error;
 	char *error_msg;
 };
-
-#define DATA_BUF_LEN 1024 * 8
-
-struct connection {
-	int idx;
-	SOCKET socket;
-	char __write_buf[DATA_BUF_LEN], __read_buf[DATA_BUF_LEN];
-	WSABUF write_buf, read_buf;
-
-	struct packet_queue send_queue, recv_queue;
-};
-
 
 int is_live_connection(struct connection *conn);
 void dissolve_connection(struct connection **connptr);
